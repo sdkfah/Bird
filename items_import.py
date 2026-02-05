@@ -1,4 +1,4 @@
-# run_monitor.py
+# items_import.py
 import frida
 import json
 import sys
@@ -58,11 +58,7 @@ def handle_sku_data(raw_json):
             ))
             sku_status_list.append({'price_name': price_name, 'salable': is_salable})
 
-
-        # 1. 更新库存库
         db.upsert_ticket_items(rows)
-        # 2. 执行 Sniper 匹配
-        matcher.process_inventory(project_title, sku_status_list)
 
     except Exception as e:
         print(f"[-] 数据处理异常: {e}")

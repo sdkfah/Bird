@@ -25,13 +25,7 @@ def import_tasks():
 
     # 3. 调用数据包的处理器存入 MySQL
     db = DBHandler()
-    confirm = input("\n[?] 确认以上信息无误并入库？(y/n): ")
-    if confirm.lower() == 'y':
-        db.insert_parsed_tasks(tasks)
-        print("[+] 入库成功！监控开启后将自动匹配。")
-    else:
-        print("[-] 操作已取消。")
-
+    db.insert_parsed_tasks(tasks)
 
 if __name__ == "__main__":
     import_tasks()

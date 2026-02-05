@@ -16,7 +16,8 @@ class DBHandler:
         order_tasks_sql = inspect.cleandoc("""
             CREATE TABLE IF NOT EXISTS `order_tasks` (
               `id` int NOT NULL AUTO_INCREMENT,
-              `project_keyword` varchar(128) NOT NULL COMMENT '项目关键词',
+              `city` varchar(64) NOT NULL COMMENT '城市',
+              `artist` varchar(128) NOT NULL COMMENT '艺人/演出名称',
               `target_date` varchar(64) DEFAULT NULL COMMENT '目标日期',
               `target_price` varchar(128) DEFAULT NULL COMMENT '目标票价',
               `customer_info` varchar(500) DEFAULT NULL COMMENT '实名人信息(姓名+身份证)',
@@ -26,8 +27,8 @@ class DBHandler:
               `status` tinyint DEFAULT '0' COMMENT '状态: 0待处理, 1已抢到, 2已撤单',
               `created_at` datetime DEFAULT NULL COMMENT '创建时间',
               PRIMARY KEY (`id`),
-              UNIQUE KEY `uk_project_customer` (`project_keyword`,`customer_info`),
-              KEY `idx_project_status` (`project_keyword`,`status`)
+              UNIQUE KEY `uk_project_customer` (`city`,artist,`customer_info`),
+              KEY `idx_project_status` (`city`,`artist`,`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
         """)
 
@@ -105,24 +106,50 @@ class DBHandler:
         """批量录入 Parser 转换后的报单数据"""
         sql = """
             INSERT INTO `order_tasks` (
-            project_keyword, target_date, target_price, customer_info, 
+            city,artist, target_date, target_price, customer_info, 
             priority_order, bounty, contact_phone, created_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s,%s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE 
             bounty = VALUES(bounty), 
             contact_phone = VALUES(contact_phone),
-            target_price = VALUES(target_price)
+            target_price = VALUES(target_price),
+            status = 0
               """
         conn = self._get_conn()
         beijing_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             with conn.cursor() as cursor:
                 data = [
-                    (t['keyword'], t['date'], t['price'], t['info'],
+                    (t['city'],t['artist'], t['date'], t['price'], t['info'],
                      t['priority'], t['bounty'], t['phone'], beijing_now)
                     for t in task_list
                 ]
                 cursor.executemany(sql, data)
             conn.commit()
+        finally:
+            conn.close()
+
+    def get_tasks_by_bounty(self, artist_name=None):
+        """根据指定艺人获取红包排序的任务，不指定则获取全部"""
+        conn = self._get_conn()
+        try:
+            with conn.cursor(pymysql.cursors.DictCursor) as cursor:
+                if artist_name:
+                    # 指定艺人查询
+                    sql = """
+                    SELECT * FROM `order_tasks` 
+                    WHERE `artist` = %s AND `status` = 0 
+                    ORDER BY `bounty` DESC, `created_at` ASC
+                    """
+                    cursor.execute(sql, (artist_name,))
+                else:
+                    # 不指定艺人，查询全部待处理任务
+                    sql = """
+                    SELECT * FROM `order_tasks` 
+                    WHERE `status` = 0 
+                    ORDER BY `bounty` DESC, `created_at` ASC
+                    """
+                    cursor.execute(sql)
+                return cursor.fetchall()
         finally:
             conn.close()
