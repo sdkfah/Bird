@@ -1,4 +1,6 @@
 # data/db_handler.py
+import os
+
 import pymysql
 import inspect  # 用于清理 SQL 缩进
 from config import DB_CONFIG
@@ -7,149 +9,89 @@ from datetime import datetime
 class DBHandler:
     def __init__(self):
         self.config = DB_CONFIG
+        # 获取 sql 文件夹的绝对路径
+        self.sql_base_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "sqls"
+        )
 
     def _get_conn(self):
         return pymysql.connect(**self.config)
 
-    def init_tables(self):
-        # 使用 cleandoc 清理多行字符串的缩进
-        order_tasks_sql = inspect.cleandoc("""
-            CREATE TABLE IF NOT EXISTS `order_tasks` (
-              `id` int NOT NULL AUTO_INCREMENT,
-              `city` varchar(64) NOT NULL COMMENT '城市',
-              `artist` varchar(128) NOT NULL COMMENT '艺人/演出名称',
-              `target_date` varchar(64) DEFAULT NULL COMMENT '目标日期',
-              `target_price` varchar(128) DEFAULT NULL COMMENT '目标票价',
-              `customer_info` varchar(500) DEFAULT NULL COMMENT '实名人信息(姓名+身份证)',
-              `priority_order` varchar(255) DEFAULT NULL COMMENT '优先顺序',
-              `bounty` decimal(10,2) DEFAULT NULL COMMENT '红包金额',
-              `contact_phone` varchar(20) DEFAULT NULL COMMENT '联系电话',
-              `status` tinyint DEFAULT '0' COMMENT '状态: 0待处理, 1已抢到, 2已撤单',
-              `created_at` datetime DEFAULT NULL COMMENT '创建时间',
-              PRIMARY KEY (`id`),
-              UNIQUE KEY `uk_project_customer` (`city`,artist,`customer_info`),
-              KEY `idx_project_status` (`city`,`artist`,`status`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-        """)
+    def _load_sql(self, filename):
+        """读取 SQL 文件内容"""
+        file_path = os.path.join(self.sql_base_path, filename)
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
 
-        ticket_items_sql = inspect.cleandoc("""
-            CREATE TABLE IF NOT EXISTS `ticket_items` (
-              `id` bigint NOT NULL AUTO_INCREMENT,
-              `item_id` varchar(32) NOT NULL COMMENT '项目ID',
-              `project_title` varchar(255) DEFAULT NULL COMMENT '演出名称',
-              `venue_name` varchar(128) DEFAULT NULL COMMENT '场馆',
-              `perform_id` varchar(32) NOT NULL COMMENT '场次ID',
-              `perform_time` datetime DEFAULT NULL COMMENT '演出时间',
-              `sku_id` varchar(32) NOT NULL COMMENT '票档SKU ID',
-              `price_name` varchar(64) DEFAULT NULL COMMENT '票档描述',
-              `price` decimal(10,2) DEFAULT NULL COMMENT '价格',
-              `stock_status` tinyint(1) DEFAULT '1' COMMENT '是否有票: 1有, 0无',
-              `limit_quantity` int DEFAULT '4' COMMENT '每单限购额',
-              `sale_start_time` datetime DEFAULT NULL COMMENT '开抢时间',
-              `updated_at` datetime DEFAULT NULL,
-              PRIMARY KEY (`id`),
-              UNIQUE KEY `sku_id` (`sku_id`),
-              KEY `idx_perform_sku` (`perform_id`,`sku_id`),
-              KEY `idx_sale_time` (`sale_start_time`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-        """)
+    def init_tables(self):
+        """从文件加载并执行建表语句"""
+        # 如果一个文件里有多个 SQL 语句，需要 split(';') 执行
+        full_sql = self._load_sql("init_tables.sql")
+        sqls = [s.strip() for s in full_sql.split(';') if s.strip()]
 
         conn = self._get_conn()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(order_tasks_sql)
-                cursor.execute(ticket_items_sql)
+                for sql in sqls:
+                    cursor.execute(sql)
             conn.commit()
-            print("[*] 数据库表初始化完成，SQL 格式已自动对齐。")
+            print("[*] 数据库表初始化成功（从文件加载）。")
         finally:
             conn.close()
 
-    def upsert_ticket_items(self, rows):
-        sql = """
-        INSERT INTO `ticket_items` (
-            item_id, project_title, venue_name, perform_id, perform_time,
-            sku_id, price_name, price, stock_status, limit_quantity, 
-            sale_start_time, updated_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
-        ON DUPLICATE KEY UPDATE
-            stock_status = VALUES(stock_status),
-            price        = VALUES(price),
-            updated_at   = VALUES(updated_at);
+    def upsert_ticket_items(self, rows_dicts):
         """
+        rows_dicts: 列表包含字典，键名需与 SQL 里的 %(key)s 一致
+        """
+        sql = self._load_sql("upsert_ticket_items")
         conn = self._get_conn()
         try:
             with conn.cursor() as cursor:
-                cursor.executemany(sql, rows)
+                cursor.executemany(sql, rows_dicts)
             conn.commit()
         finally:
             conn.close()
 
     def find_matching_orders(self, project_title, price_name):
-        """狙击匹配：寻找红包最高且符合项目和票价的任务"""
-        sql = """
-        SELECT customer_info, bounty, contact_phone
-        FROM order_tasks
-        WHERE %s LIKE CONCAT('%%', project_keyword, '%%')
-          AND %s LIKE CONCAT('%%', target_price, '%%')
-          AND status = 0
-        ORDER BY bounty DESC 
-        """
+        sql = self._load_sql("find_matching_orders")
         conn = self._get_conn()
         try:
             with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-                cursor.execute(sql, (project_title, price_name))
+                # 使用字典传参
+                cursor.execute(sql, {"project_title": project_title, "price_name": price_name})
                 return cursor.fetchall()
         finally:
             conn.close()
 
     def insert_parsed_tasks(self, task_list):
-        """批量录入 Parser 转换后的报单数据"""
-        sql = """
-            INSERT INTO `order_tasks` (
-            city,artist, target_date, target_price, customer_info, 
-            priority_order, bounty, contact_phone, created_at
-        ) VALUES (%s, %s,%s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE 
-            bounty = VALUES(bounty), 
-            contact_phone = VALUES(contact_phone),
-            target_price = VALUES(target_price),
-            status = 0
-              """
-        conn = self._get_conn()
+        sql = self._load_sql("insert_parsed_tasks")
         beijing_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 为每条数据添加创建时间
+        for t in task_list:
+            t['created_at'] = beijing_now
+
+        conn = self._get_conn()
         try:
             with conn.cursor() as cursor:
-                data = [
-                    (t['city'],t['artist'], t['date'], t['price'], t['info'],
-                     t['priority'], t['bounty'], t['phone'], beijing_now)
-                    for t in task_list
-                ]
-                cursor.executemany(sql, data)
+                cursor.executemany(sql, task_list)
             conn.commit()
         finally:
             conn.close()
 
-    def get_tasks_by_bounty(self, artist_name=None):
-        """根据指定艺人获取红包排序的任务，不指定则获取全部"""
+    def get_matched_tasks_report(self, artist_name=None):
+        sql = self._load_sql("get_matched_tasks_report")
+
+        if artist_name:
+            sql += " AND t.artist = %(artist_name)s"
+
+        sql += " ORDER BY t.bounty DESC, t.created_at ASC"
+
         conn = self._get_conn()
         try:
             with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-                if artist_name:
-                    # 指定艺人查询
-                    sql = """
-                    SELECT * FROM `order_tasks` 
-                    WHERE `artist` = %s AND `status` = 0 
-                    ORDER BY `bounty` DESC, `created_at` ASC
-                    """
-                    cursor.execute(sql, (artist_name,))
-                else:
-                    # 不指定艺人，查询全部待处理任务
-                    sql = """
-                    SELECT * FROM `order_tasks` 
-                    WHERE `status` = 0 
-                    ORDER BY `bounty` DESC, `created_at` ASC
-                    """
-                    cursor.execute(sql)
+                cursor.execute(sql, {"artist_name": artist_name})
                 return cursor.fetchall()
         finally:
             conn.close()
