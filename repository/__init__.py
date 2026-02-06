@@ -8,9 +8,6 @@ from .task_repo import TaskRepository
 
 MAPPER_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'mappers')
 
-# 2. 核心优化：只创建一个真正的实例
-# 这会初始化一个连接池并加载一次所有 YAML
-db_base = BaseRepository(MAPPER_PATH)
 
 db_device = DeviceRepository(MAPPER_PATH)
 db_log = LogRepository(MAPPER_PATH)

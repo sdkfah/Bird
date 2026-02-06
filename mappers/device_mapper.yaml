@@ -1,70 +1,69 @@
-device_mapper:
-  # --- 分组基础 CRUD ---
-  insert_group: >
-    INSERT INTO device_groups (name, config_json, description)
-    VALUES (%(name)s, %(config_json)s, %(description)s)
+# --- 分组基础 CRUD ---
+insert_group: >
+  INSERT INTO device_groups (name, config_json, description)
+  VALUES (%(name)s, %(config_json)s, %(description)s)
 
-  update_group: >
-    UPDATE device_groups 
-    SET config_json = %(config_json)s, description = %(description)s
-    WHERE id = %(id)s
+update_group: >
+  UPDATE device_groups 
+  SET config_json = %(config_json)s, description = %(description)s
+  WHERE id = %(id)s
 
-  delete_group: >
-    DELETE FROM device_groups WHERE id = %(id)s
+delete_group: >
+  DELETE FROM device_groups WHERE id = %(id)s
 
-  get_all_groups: >
-    SELECT * FROM device_groups
+get_all_groups: >
+  SELECT * FROM device_groups
 
-  # --- 成员管理 ---
+# --- 成员管理 ---
 
-  # 将设备从指定组移除
-  remove_device_from_group: >
-    DELETE FROM device_group_link 
-    WHERE device_sn = %(sn)s AND group_id = %(group_id)s
+# 将设备从指定组移除
+remove_device_from_group: >
+  DELETE FROM device_group_link 
+  WHERE device_sn = %(sn)s AND group_id = %(group_id)s
 
-  # 移除设备的所有当前分组关联（为迁移做准备）
-  clear_device_links: >
-    DELETE FROM device_group_link WHERE device_sn = %(sn)s
+# 移除设备的所有当前分组关联（为迁移做准备）
+clear_device_links: >
+  DELETE FROM device_group_link WHERE device_sn = %(sn)s
 
-  # 批量绑定设备到新分组
-  batch_link_to_group: >
-    INSERT INTO device_group_link (device_sn, group_id)
-    VALUES (%(sn)s, %(group_id)s)
+# 批量绑定设备到新分组
+batch_link_to_group: >
+  INSERT INTO device_group_link (device_sn, group_id)
+  VALUES (%(sn)s, %(group_id)s)
 
-  # 获取某个分组下的所有设备详情
-  get_devices_in_group: >
-    SELECT d.* FROM devices d
-    JOIN device_group_link l ON d.sn = l.device_sn
-    WHERE l.group_id = %(group_id)s    
+# 获取某个分组下的所有设备详情
+get_devices_in_group: >
+  SELECT d.* FROM devices d
+  JOIN device_group_link l ON d.sn = l.device_sn
+  WHERE l.group_id = %(group_id)s    
 
-  # 注册或更新设备状态
-  upsert_device: >
-    INSERT INTO devices (sn, brand, model, ip_address, status)
-    VALUES (%(sn)s, %(brand)s, %(model)s, %(ip_address)s, %(status)s)
-    ON DUPLICATE KEY UPDATE 
-      status = VALUES(status), 
-      ip_address = VALUES(ip_address), 
-      last_seen = NOW()
+# 注册或更新设备状态
+upsert_device: >
+  INSERT INTO devices (sn, brand, model, ip_address, status)
+  VALUES (%(sn)s, %(brand)s, %(model)s, %(ip_address)s, %(status)s)
+  ON DUPLICATE KEY UPDATE 
+    status = VALUES(status), 
+    ip_address = VALUES(ip_address), 
+    last_seen = NOW()
 
-  # 获取设备及其所属组的配置
-  get_device_with_config: >
-    SELECT d.*, g.config_json, g.name as group_name
-    FROM devices d
-    LEFT JOIN device_group_link l ON d.sn = l.device_sn
-    LEFT JOIN device_groups g ON l.group_id = g.id
-    WHERE d.sn = %(sn)s
+# 获取设备及其所属组的配置
+get_device_with_config: >
+  SELECT d.*, g.config_json, g.name as group_name
+  FROM devices d
+  LEFT JOIN device_group_link l ON d.sn = l.device_sn
+  LEFT JOIN device_groups g ON l.group_id = g.id
+  WHERE d.sn = %(sn)s
 
-  # 绑定设备到分组
-  link_device_to_group: >
-    INSERT IGNORE INTO device_group_link (device_sn, group_id)
-    VALUES (%(device_sn)s, %(group_id)s)
+# 绑定设备到分组
+link_device_to_group: >
+  INSERT IGNORE INTO device_group_link (device_sn, group_id)
+  VALUES (%(device_sn)s, %(group_id)s)
 
-  # 心跳更新：仅更新最后见面的时间
-  heartbeat: >
-    UPDATE devices SET last_seen = NOW(), status = 1 
-    WHERE sn = %(sn)s
+# 心跳更新：仅更新最后见面的时间
+heartbeat: >
+  UPDATE devices SET last_seen = NOW(), status = 1 
+  WHERE sn = %(sn)s
 
-  # 自动清理：将超过 5 分钟没心跳的设备置为离线 (0)
-  auto_offline_devices: >
-    UPDATE devices SET status = 0 
-    WHERE last_seen < DATE_SUB(NOW(), INTERVAL 5 MINUTE) AND status != 0
+# 自动清理：将超过 5 分钟没心跳的设备置为离线 (0)
+auto_offline_devices: >
+  UPDATE devices SET status = 0 
+  WHERE last_seen < DATE_SUB(NOW(), INTERVAL 5 MINUTE) AND status != 0

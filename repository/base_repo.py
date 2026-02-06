@@ -6,20 +6,33 @@ from dbutils.pooled_db import PooledDB
 from loguru import logger
 from common.config import config
 
-
 class BaseRepository:
-    def __init__(self, mapper_dir):
-        """
-        新版初始化：使用原生 Jinja2 替代 jinjasql
-        """
-        # 1. 初始化 Jinja2 环境 (用于渲染动态 SQL 逻辑)
-        self.jinja_env = Environment(loader=BaseLoader())
-        self.mappers = {}
+    # --- 类变量：所有子类共享的单例资源 ---
+    _pool = None
+    _mappers = {}      # 缓存 SQL 模板，避免重复磁盘 IO
+    _jinja_env = None  # 共享渲染引擎
 
-        # 2. 初始化数据库连接池
+    def __init__(self, mapper_dir):
+        # 1. 确保连接池全局唯一
+        if BaseRepository._pool is None:
+            self._init_pool()
+        self.pool = BaseRepository._pool
+
+        # 2. 确保 Jinja2 环境全局唯一
+        if BaseRepository._jinja_env is None:
+            BaseRepository._jinja_env = Environment(loader=BaseLoader())
+        self.jinja_env = BaseRepository._jinja_env
+
+        # 3. 确保 Mapper 全局只加载一次
+        if not BaseRepository._mappers:
+            self._load_all_mappers(mapper_dir)
+        self.mappers = BaseRepository._mappers
+
+    def _init_pool(self):
+        """初始化数据库连接池"""
         db_params = config.DB_CONFIG
         try:
-            self.pool = PooledDB(
+            BaseRepository._pool = PooledDB(
                 creator=pymysql,
                 mincached=5,
                 maxcached=20,
@@ -34,16 +47,13 @@ class BaseRepository:
                 charset=db_params["charset"],
                 cursorclass=pymysql.cursors.DictCursor
             )
-            logger.info("✅ 数据库连接池初始化成功 (原生 Jinja2 模式)")
+            logger.info("✅ 全局数据库连接池初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库池初始化失败: {e}")
             raise
 
-        # 3. 使用 PyYAML 加载 Mapper 文件
-        self._load_mappers(mapper_dir)
-
-    def _load_mappers(self, mapper_dir):
-        """利用 PyYAML 扫描并解析所有 SQL 模板 """
+    def _load_all_mappers(self, mapper_dir):
+        """扫描并解析所有 YAML 逻辑到类变量"""
         if not os.path.exists(mapper_dir):
             return
 
@@ -53,39 +63,36 @@ class BaseRepository:
                 namespace = os.path.splitext(filename)[0]
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        # PyYAML 将文件内容解析为字典
                         content = yaml.safe_load(f)
                         if content:
-                            self.mappers[namespace] = content
-                    logger.info(f"📑 已加载 Mapper: {namespace}")
+                            BaseRepository._mappers[namespace] = content # 存入类变量
+                    logger.info(f"📑 成功加载 Mapper: {namespace}")
                 except Exception as e:
                     logger.error(f"❌ 加载 Mapper {filename} 失败: {e}")
 
     def execute(self, namespace, sql_id, params=None):
-        """
-        执行 SQL：先用 Jinja2 渲染，再由 PyMySQL 执行
-        """
+        """执行 SQL：先由 Jinja2 处理逻辑，再由 PyMySQL 参数化执行"""
         params = params or {}
-
-        # 1. 获取 SQL 模板
         mapper = self.mappers.get(namespace)
         if not mapper: raise ValueError(f"Namespace {namespace} missing")
+
         template_str = mapper.get(sql_id)
         if not template_str: raise ValueError(f"SQL ID {sql_id} missing")
 
-        # 2. 使用 Jinja2 渲染动态 SQL (处理 if/for 等逻辑)
-        # 注意：为了安全，复杂场景建议改用参数化构建，这里演示核心逻辑
-        template = self.jinja_env.from_string(template_str)
-        query = template.render(**params)
+        # --- 修复逻辑开始 ---
+        # 1. 第一步：Jinja2 渲染（处理 if/for 等逻辑，但不替换 %(key)s）
+        # 注意：此时 template_str 里的 %(name)s 会被保留
+        query = self.jinja_env.from_string(template_str).render(**params)
 
-        # 3. 从连接池获取连接并执行
         conn = self.pool.connection()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(query)  # 直接执行渲染后的 SQL
-                conn.commit()
+                # 2. 第二步：将渲染后的 SQL 和原始 params 一起传给 execute
+                # PyMySQL 会自动匹配 SQL 里的 %(key)s 并安全地替换 params 里的值
+                cursor.execute(query, params)
+                # --- 修复逻辑结束 ---
 
-                # 自动处理返回类型
+                conn.commit()
                 q_upper = query.strip().upper()
                 if q_upper.startswith(("SELECT", "SHOW", "DESC")):
                     return cursor.fetchall()
