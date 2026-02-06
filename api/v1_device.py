@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException
-from typing import List
 from schemas import ResponseModel, DeviceSchema, GroupCreate, MigrateRequest
 from repository import db_device
 

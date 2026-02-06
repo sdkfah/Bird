@@ -3,7 +3,7 @@ from typing import List
 from schemas import ResponseModel, TicketItemSchema
 from repository import db_ticket
 
-router = APIRouter(prefix="/inventory", tags=["库存与SKU上报"])
+router = APIRouter(prefix="/ticket", tags=["库存与SKU上报"])
 
 
 @router.post("/report", response_model=ResponseModel)
@@ -19,7 +19,7 @@ async def report_inventory(items: List[TicketItemSchema], background_tasks: Back
     rows = [item.dict() for item in items]
 
     # 异步入库：对应 ticket_mapper.yaml 中的 upsert_ticket_item
-    background_tasks.add_task(db_ticket.batch_upsert_skus, rows)
+    background_tasks.add_task(db_ticket.upsert_ticket_items, rows)
 
     return ResponseModel(msg=f"已接收 {len(items)} 条库存记录，后台处理中")
 
