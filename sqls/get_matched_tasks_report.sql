@@ -13,7 +13,8 @@ SELECT
     i.stock_status AS has_stock
 FROM order_tasks t
 INNER JOIN ticket_items i ON (
-    i.project_title LIKE CONCAT('%', t.artist, '%')
+    i.project_title LIKE CONCAT('%%', t.artist, '%%')
+    AND i.project_title LIKE CONCAT('%%', t.city, '%%')
     AND i.perform_time >= t.target_date
     AND i.perform_time < DATE_ADD(t.target_date, INTERVAL 1 DAY)
     AND i.price = t.target_price

@@ -1,0 +1,15 @@
+ticket_mapper:
+  # 批量同步库存（对应你 agent.py 里的 handle_sku_data）
+  upsert_ticket: >
+    INSERT INTO ticket_items (
+        item_id, project_title, venue_name, perform_id, 
+        perform_time, sku_id, price_name, price, 
+        stock_status, limit_quantity, sale_start_time, updated_at
+    ) VALUES (
+        {{ item_id }}, {{ project_title }}, {{ venue_name }}, {{ perform_id }},
+        {{ perform_time }}, {{ sku_id }}, {{ price_name }}, {{ price }},
+        {{ stock_status }}, {{ limit_quantity }}, {{ sale_start_time }}, {{ updated_at }}
+    )
+    ON DUPLICATE KEY UPDATE 
+        stock_status = VALUES(stock_status),
+        updated_at = VALUES(updated_at)

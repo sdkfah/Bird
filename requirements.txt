@@ -1,0 +1,20 @@
+# --- Web 界面与 API ---
+streamlit==1.31.0               # 构建美观的中控台管理界面
+fastapi ==0.109.0                # (可选) 如果需要接收手机主动回传的数据
+uvicorn ==0.27.0                # FastAPI 的运行服务器
+pydantic==2.5.3                 # 数据验证：FastAPI 的强力搭档，负责解析 Frida 发来的 JSON
+
+# --- 数据库与 SQL 处理 ---
+pymysql==1.1.0                 # MySQL 基础驱动
+DBUtils==3.0.3                 # 数据库连接池，支撑数百台设备并发写入
+jinjasql==0.1.7                 # 核心：支持 YAML 中 MyBatis 风格的动态 SQL 渲染
+PyYAML==6.0.1                  # 解析 YAML 映射文件
+
+# --- Frida 与 自动化 ---
+frida==16.2.1                   # Python 端 Frida 核心库
+frida-tools==12.3.0            # Frida 工具集
+
+# --- 工具类 ---
+loguru==0.7.2                  # 强大的日志管理，支持为不同手机生成独立日志
+python-dotenv==1.0.0           # 从 .env 文件读取数据库密码等敏感配置
+pandas>=2.0.0                  # 配合 Streamlit 展示美观的设备数据表格

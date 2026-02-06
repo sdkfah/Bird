@@ -44,7 +44,7 @@ class DBHandler:
         """
         rows_dicts: 列表包含字典，键名需与 SQL 里的 %(key)s 一致
         """
-        sql = self._load_sql("upsert_ticket_items")
+        sql = self._load_sql("upsert_ticket_items.sql")
         conn = self._get_conn()
         try:
             with conn.cursor() as cursor:
@@ -53,19 +53,8 @@ class DBHandler:
         finally:
             conn.close()
 
-    def find_matching_orders(self, project_title, price_name):
-        sql = self._load_sql("find_matching_orders")
-        conn = self._get_conn()
-        try:
-            with conn.cursor(pymysql.cursors.DictCursor) as cursor:
-                # 使用字典传参
-                cursor.execute(sql, {"project_title": project_title, "price_name": price_name})
-                return cursor.fetchall()
-        finally:
-            conn.close()
-
     def insert_parsed_tasks(self, task_list):
-        sql = self._load_sql("insert_parsed_tasks")
+        sql = self._load_sql("insert_parsed_tasks.sql")
         beijing_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # 为每条数据添加创建时间
@@ -81,7 +70,7 @@ class DBHandler:
             conn.close()
 
     def get_matched_tasks_report(self, artist_name=None):
-        sql = self._load_sql("get_matched_tasks_report")
+        sql = self._load_sql("get_matched_tasks_report.sql")
 
         if artist_name:
             sql += " AND t.artist = %(artist_name)s"
