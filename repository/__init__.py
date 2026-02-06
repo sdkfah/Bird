@@ -1,12 +1,18 @@
 # repository/__init__.py
-from .order_repo import OrderRepository
-from .ticket_repo import TicketRepository
-
 import os
+from .base_repo import BaseRepository
+from .device_repo import DeviceRepository
+from .log_repo import LogRepository
+from .ticket_repo import TicketRepository
+from .task_repo import TaskRepository
 
-# 获取 mapper 文件夹的绝对路径
-MAPPER_PATH = os.path.join(os.path.dirname(__file__), '..', 'mappers')
+MAPPER_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'mappers')
 
-# 实例化 db_order，它会自动加载 mappers 里的 SQL 模板
-db_order = OrderRepository(MAPPER_PATH)
+# 2. 核心优化：只创建一个真正的实例
+# 这会初始化一个连接池并加载一次所有 YAML
+db_base = BaseRepository(MAPPER_PATH)
+
+db_device = DeviceRepository(MAPPER_PATH)
+db_log = LogRepository(MAPPER_PATH)
 db_ticket = TicketRepository(MAPPER_PATH)
+db_task = TaskRepository(MAPPER_PATH)

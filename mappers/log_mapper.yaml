@@ -1,0 +1,15 @@
+log_mapper:
+  # 插入行为日志
+  insert_log: >
+    INSERT INTO action_logs (
+      device_sn, task_id, level, module, content
+    ) VALUES (
+      %(device_sn)s, %(task_id)s, %(level)s, %(module)s, %(content)s
+    )
+
+  # 按设备查询最近日志
+  get_recent_logs: >
+    SELECT * FROM action_logs 
+    WHERE device_sn = %(device_sn)s 
+    ORDER BY created_at DESC 
+    LIMIT %(limit)s

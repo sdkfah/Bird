@@ -1,15 +1,35 @@
 ticket_mapper:
-  # 批量同步库存（对应你 agent.py 里的 handle_sku_data）
-  upsert_ticket: >
+  # 批量更新 SKU 库存信息
+  upsert_ticket_item: >
     INSERT INTO ticket_items (
-        item_id, project_title, venue_name, perform_id, 
-        perform_time, sku_id, price_name, price, 
-        stock_status, limit_quantity, sale_start_time, updated_at
+      item_id, project_title, venue_name, perform_id, perform_time, 
+      sku_id, price_name, price, stock_status, limit_quantity, 
+      sale_start_time, updated_at
     ) VALUES (
-        {{ item_id }}, {{ project_title }}, {{ venue_name }}, {{ perform_id }},
-        {{ perform_time }}, {{ sku_id }}, {{ price_name }}, {{ price }},
-        {{ stock_status }}, {{ limit_quantity }}, {{ sale_start_time }}, {{ updated_at }}
+      %(item_id)s, %(project_title)s, %(venue_name)s, %(perform_id)s, %(perform_time)s, 
+      %(sku_id)s, %(price_name)s, %(price)s, %(stock_status)s, %(limit_quantity)s, 
+      %(sale_start_time)s, NOW()
     )
     ON DUPLICATE KEY UPDATE 
-        stock_status = VALUES(stock_status),
-        updated_at = VALUES(updated_at)
+      stock_status = VALUES(stock_status),
+      price = VALUES(price),
+      updated_at = NOW()
+
+  # 查询特定项目的有票 SKU
+  get_available_skus: >
+    SELECT * FROM ticket_items 
+    WHERE item_id = %(item_id)s AND stock_status = 1
+    ORDER BY price ASC
+
+  # 统计某个演出各价位的库存分布
+  get_item_stock_summary: >
+    SELECT price_name, price, stock_status, COUNT(*) as sku_count
+    FROM ticket_items
+    WHERE item_id = %(item_id)s
+    GROUP BY price_name, price, stock_status
+
+  # 获取开抢时间在 5 分钟以内的项目
+  get_upcoming_sales: >
+    SELECT DISTINCT project_title, item_id, sale_start_time 
+    FROM ticket_items
+    WHERE sale_start_time BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 5 MINUTE)

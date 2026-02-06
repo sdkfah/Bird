@@ -1,49 +1,50 @@
 import os
 import yaml
 import pymysql
+from jinja2 import Environment, BaseLoader
 from dbutils.pooled_db import PooledDB
-from jinjasql import JinjaSql
 from loguru import logger
 from common.config import config
+
 
 class BaseRepository:
     def __init__(self, mapper_dir):
         """
-        初始化数据库连接池并加载所有 SQL 映射文件
-        :param mapper_dir: mappers 目录的绝对路径
+        新版初始化：使用原生 Jinja2 替代 jinjasql
         """
-        self.j = JinjaSql(param_style='pyformat')
+        # 1. 初始化 Jinja2 环境 (用于渲染动态 SQL 逻辑)
+        self.jinja_env = Environment(loader=BaseLoader())
         self.mappers = {}
 
-        # 1. 初始化数据库连接池 (适应高并发)
+        # 2. 初始化数据库连接池
         db_params = config.DB_CONFIG
         try:
             self.pool = PooledDB(
                 creator=pymysql,
-                mincached=5,  # 启动时最少空闲连接数
-                maxcached=20,  # 最大空闲连接数
-                maxconnections=100,  # 最大允许连接数
-                blocking=True,  # 连接池满时是否阻塞等待
+                mincached=5,
+                maxcached=20,
+                maxconnections=100,
+                blocking=True,
+                setsession=['SET AUTOCOMMIT = 1'],
                 host=db_params["host"],
                 port=db_params["port"],
                 user=db_params["user"],
                 password=db_params["password"],
                 database=db_params["database"],
                 charset=db_params["charset"],
-                cursorclass=pymysql.cursors.DictCursor  # 返回字典格式的结果
+                cursorclass=pymysql.cursors.DictCursor
             )
-            logger.info("✅ 数据库连接池初始化成功")
+            logger.info("✅ 数据库连接池初始化成功 (原生 Jinja2 模式)")
         except Exception as e:
-            logger.error(f"❌ 数据库连接池初始化失败: {e}")
+            logger.error(f"❌ 数据库池初始化失败: {e}")
             raise
 
-        # 2. 加载 Mapper 文件
+        # 3. 使用 PyYAML 加载 Mapper 文件
         self._load_mappers(mapper_dir)
 
     def _load_mappers(self, mapper_dir):
-        """扫描并解析 mappers 文件夹下的所有 yaml 文件"""
+        """利用 PyYAML 扫描并解析所有 SQL 模板 """
         if not os.path.exists(mapper_dir):
-            logger.warning(f"⚠️ Mapper 目录不存在: {mapper_dir}")
             return
 
         for filename in os.listdir(mapper_dir):
@@ -52,6 +53,7 @@ class BaseRepository:
                 namespace = os.path.splitext(filename)[0]
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
+                        # PyYAML 将文件内容解析为字典
                         content = yaml.safe_load(f)
                         if content:
                             self.mappers[namespace] = content
@@ -61,36 +63,32 @@ class BaseRepository:
 
     def execute(self, namespace, sql_id, params=None):
         """
-        执行 SQL (自动渲染动态 SQL)
-        :param namespace: yaml 文件名 (不带后缀)
-        :param sql_id: yaml 里的 key
-        :param params: 字典格式的参数
+        执行 SQL：先用 Jinja2 渲染，再由 PyMySQL 执行
         """
-        if params is None:
-            params = {}
+        params = params or {}
 
         # 1. 获取 SQL 模板
         mapper = self.mappers.get(namespace)
-        if not mapper:
-            raise ValueError(f"Namespace '{namespace}' 不存在")
+        if not mapper: raise ValueError(f"Namespace {namespace} missing")
+        template_str = mapper.get(sql_id)
+        if not template_str: raise ValueError(f"SQL ID {sql_id} missing")
 
-        template = mapper.get(sql_id)
-        if not template:
-            raise ValueError(f"SQL ID '{sql_id}' 在 {namespace} 中未找到")
-
-        # 2. 使用 JinjaSql 渲染动态 SQL (防止 SQL 注入)
-        query, bind_params = self.j.prepare_query(template, params)
+        # 2. 使用 Jinja2 渲染动态 SQL (处理 if/for 等逻辑)
+        # 注意：为了安全，复杂场景建议改用参数化构建，这里演示核心逻辑
+        template = self.jinja_env.from_string(template_str)
+        query = template.render(**params)
 
         # 3. 从连接池获取连接并执行
         conn = self.pool.connection()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(query, bind_params)
+                cursor.execute(query)  # 直接执行渲染后的 SQL
                 conn.commit()
-                return cursor.fetchall()
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"❌ SQL 执行异常 [{namespace}.{sql_id}]: {e}")
-            raise
+
+                # 自动处理返回类型
+                q_upper = query.strip().upper()
+                if q_upper.startswith(("SELECT", "SHOW", "DESC")):
+                    return cursor.fetchall()
+                return {"affected": cursor.rowcount, "last_id": cursor.lastrowid}
         finally:
-            conn.close()  # 归还连接到连接池
+            conn.close()

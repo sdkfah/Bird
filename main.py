@@ -1,16 +1,18 @@
 from core.frida_manager import FridaManager
 from services.data_processor import process_raw_sku_data
-from repository import db_ticket  # 预先实例化的 TicketRepository
-
+from repository import db_log
 
 def global_on_message(message, data):
     if message['type'] == 'send':
         payload = message['payload']
+        db_log.info(sn, f"收到数据上报: {payload.get('type')}", module="Frida")
+
         if payload.get('type') == 'SKU_DATA':
-            # 1. 业务层清洗
-            rows = process_raw_sku_data(payload.get('data'))
-            # 2. 仓库层持久化
-            db_ticket.batch_upsert_skus(rows)
+            try:
+                process_raw_sku_data(payload.get('data'))
+            except Exception as e:
+                # 记录错误到数据库
+                db_log.error(sn, f"处理失败: {str(e)}", module="Processor")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,21 @@
-order_mapper:
+task_mapper:
+  # 获取所有待处理任务
+  get_pending_tasks: >
+    SELECT * FROM order_tasks 
+    WHERE status = 0 
+    ORDER BY created_at DESC
+
+  # 更新任务状态 (抢票成功/失败/撤单)
+  update_task_status: >
+    UPDATE order_tasks 
+    SET status = %(status)s, created_at = NOW()
+    WHERE id = %(id)s
+
+  # 根据艺人匹配任务
+  find_tasks_by_artist: >
+    SELECT * FROM order_tasks 
+    WHERE artist LIKE CONCAT('%%', %(artist)s, '%%') AND status = 0
+
   # 核心：寻找符合库存条件的待处理任务
   find_matching_tasks: >
     SELECT 
@@ -15,14 +32,7 @@ order_mapper:
     WHERE t.status = 0               -- 状态：待处理
       AND i.stock_status = 1         -- 状态：有票
       -- 匹配票价 (如果任务指定了票价)
-      AND (t.target_price IS NULL OR t.target_price = i.price)
+      AND (%(target_price)s IS NULL OR %(target_price)s = i.price)
       -- 匹配日期 (将 datetime 转为 date 进行比对)
-      AND (t.target_date IS NULL OR t.target_date = DATE(i.perform_time))
+      AND (%(target_date)s IS NULL OR %(target_date)s = DATE(i.perform_time))
     ORDER BY t.created_at ASC        -- 先下单的优先抢
-
-  # 更新任务状态
-  update_task_status: >
-    UPDATE order_tasks 
-    SET status = {{ status }},
-        created_at = NOW()
-    WHERE id = {{ task_id }}
